@@ -65,48 +65,7 @@ export default function IntercomPage() {
         setDetail("Negotiating peer connection");
         const offer = await pcRef.current.createOffer();
         if (pcRef.current.signalingState !== "stable") return;
-        
-        let modifiedSdp = offer.sdp || "";
-        try {
-          modifiedSdp = modifiedSdp
-            .replace(/a=rtpmap:(\d+) opus\/48000\/2/g, "a=rtpmap:$1 opus/48000/1");
-          
-          const fmtpRegex = /a=fmtp:(\d+) (.+)/g;
-          let match;
-          const fmtpReplacements: Array<{ pt: string; newLine: string }> = [];
-          
-          while ((match = fmtpRegex.exec(modifiedSdp)) !== null) {
-            const pt = match[1];
-            const params = match[2];
-            if (params.includes("opus")) {
-              const existingParams = params.split(";").filter(p => {
-                const key = p.split("=")[0];
-                return !["maxaveragebitrate", "usedtx", "stereo", "sprop-stereo"].includes(key);
-              }).join(";");
-              const newParams = existingParams 
-                ? `${existingParams};maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0`
-                : "maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0";
-              fmtpReplacements.push({ pt, newLine: `a=fmtp:${pt} ${newParams}` });
-            }
-          }
-          
-          for (const { pt, newLine } of fmtpReplacements) {
-            modifiedSdp = modifiedSdp.replace(
-              new RegExp(`a=fmtp:${pt} .+`, "g"),
-              newLine
-            );
-          }
-        } catch (sdpErr) {
-          console.warn("SDP modification failed, using original:", sdpErr);
-          modifiedSdp = offer.sdp || "";
-        }
-        
-        const modifiedOffer = {
-          ...offer,
-          sdp: modifiedSdp,
-        };
-        
-        await pcRef.current.setLocalDescription(modifiedOffer);
+        await pcRef.current.setLocalDescription(offer);
         if (pcRef.current.localDescription) {
           socketRef.current.emit("signal", {
             room: ROOM,
@@ -141,46 +100,9 @@ export default function IntercomPage() {
         localStreamRef.current = stream;
         setMediaGranted(true);
         
-        const audioTrack = stream.getAudioTracks()[0];
-        if (audioTrack) {
-          const sender = pc.addTrack(audioTrack, stream);
-          
-          const configureLowLatency = async () => {
-            try {
-              const params = sender.getParameters();
-              if (params.codecs) {
-                const opusCodec = params.codecs.find(
-                  (codec) => codec.mimeType === "audio/opus"
-                );
-                if (opusCodec && opusCodec.sdpFmtpLine) {
-                  opusCodec.sdpFmtpLine = opusCodec.sdpFmtpLine
-                    .replace(/maxplaybackrate=\d+/, "maxplaybackrate=48000")
-                    .replace(/stereo=\d+/, "stereo=0")
-                    .replace(/sprop-stereo=\d+/, "sprop-stereo=0");
-                  if (!opusCodec.sdpFmtpLine.includes("maxaveragebitrate")) {
-                    opusCodec.sdpFmtpLine += ";maxaveragebitrate=32000";
-                  }
-                  if (!opusCodec.sdpFmtpLine.includes("usedtx")) {
-                    opusCodec.sdpFmtpLine += ";usedtx=0";
-                  }
-                  await sender.setParameters(params);
-                }
-              }
-            } catch (err) {
-              console.warn("Failed to configure low-latency codec:", err);
-            }
-          };
-          
-          if (pc.connectionState === "new") {
-            await configureLowLatency();
-          } else {
-            pc.addEventListener("connectionstatechange", () => {
-              if (pc.connectionState === "connected") {
-                void configureLowLatency();
-              }
-            }, { once: true });
-          }
-        }
+        stream.getTracks().forEach((track) => {
+          pc.addTrack(track, stream);
+        });
         
         pc.addEventListener("negotiationneeded", handleNegotiationNeeded);
       } catch (error) {
@@ -227,48 +149,7 @@ export default function IntercomPage() {
 
           if (description.type === "offer") {
             const answer = await pcCurrent.createAnswer();
-            
-            let modifiedAnswerSdp = answer.sdp || "";
-            try {
-              modifiedAnswerSdp = modifiedAnswerSdp
-                .replace(/a=rtpmap:(\d+) opus\/48000\/2/g, "a=rtpmap:$1 opus/48000/1");
-              
-              const fmtpRegex = /a=fmtp:(\d+) (.+)/g;
-              let match;
-              const fmtpReplacements: Array<{ pt: string; newLine: string }> = [];
-              
-              while ((match = fmtpRegex.exec(modifiedAnswerSdp)) !== null) {
-                const pt = match[1];
-                const params = match[2];
-                if (params.includes("opus")) {
-                  const existingParams = params.split(";").filter(p => {
-                    const key = p.split("=")[0];
-                    return !["maxaveragebitrate", "usedtx", "stereo", "sprop-stereo"].includes(key);
-                  }).join(";");
-                  const newParams = existingParams 
-                    ? `${existingParams};maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0`
-                    : "maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0";
-                  fmtpReplacements.push({ pt, newLine: `a=fmtp:${pt} ${newParams}` });
-                }
-              }
-              
-              for (const { pt, newLine } of fmtpReplacements) {
-                modifiedAnswerSdp = modifiedAnswerSdp.replace(
-                  new RegExp(`a=fmtp:${pt} .+`, "g"),
-                  newLine
-                );
-              }
-            } catch (sdpErr) {
-              console.warn("Answer SDP modification failed, using original:", sdpErr);
-              modifiedAnswerSdp = answer.sdp || "";
-            }
-            
-            const modifiedAnswer = {
-              ...answer,
-              sdp: modifiedAnswerSdp,
-            };
-            
-            await pcCurrent.setLocalDescription(modifiedAnswer);
+            await pcCurrent.setLocalDescription(answer);
             if (pcCurrent.localDescription && socketRef.current) {
               socketRef.current.emit("signal", {
                 room: ROOM,
