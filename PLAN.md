@@ -11,16 +11,18 @@
 
 ## Env
 
-- `NEXT_PUBLIC_SIGNALING_URL` – e.g. `http://localhost:3001`.
-- `NEXT_PUBLIC_INTERCOM_ROOM` – defaults to `door`.
-- `ALLOWED_ORIGINS` on the server if you need to lock CORS (comma-separated).
+- Client: copy `client/ui/env.example` to `client/ui/.env.local`
+  - `NEXT_PUBLIC_SIGNALING_URL=http://LXC_IP:3001`
+  - `NEXT_PUBLIC_INTERCOM_ROOM=door` (or your room name)
+- Server: set via pm2 ecosystem or systemd Environment:
+  - `PORT=3001` (default)
+  - `ALLOWED_ORIGINS=http://LXC_IP:3000` (comma-separated if multiple)
 
 ## Proxmox LXC (Debian 12) setup
 
 - `sudo apt update && sudo apt install -y curl git build-essential`
 - `curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -`
 - `sudo apt install -y nodejs`
-- Git target: `sudo mkdir -p /opt/intercom.git && sudo git init --bare /opt/intercom.git`
 - On macOS inside this repo: push to GitHub as usual: `git remote add origin git@github.com:chasecee/intercom.git` (if not set) then `git push origin main`.
 - On LXC: `sudo git clone https://github.com/chasecee/intercom.git /opt/intercom` (or use SSH URL if you have keys there)
 - Install deps: `cd /opt/intercom/server && npm ci`; `cd /opt/intercom/client/ui && npm ci`
