@@ -39,17 +39,17 @@ if [[ -f /opt/intercom/package-lock.json ]]; then
 fi
 
 echo "Installing dependencies..."
-cd server && npm ci
-cd ../client/ui && npm ci
+cd /opt/intercom/server && npm ci
+cd /opt/intercom/client/ui && npm ci
 
 echo "Creating .env.local..."
-cat >client/ui/.env.local <<EOF
+cat >/opt/intercom/client/ui/.env.local <<EOF
 NEXT_PUBLIC_SIGNALING_URL=http://${LXC_IP}:3001
 NEXT_PUBLIC_INTERCOM_ROOM=door
 EOF
 
 echo "Building Next.js app..."
-cd client/ui && npm run build
+cd /opt/intercom/client/ui && npm run build
 
 echo "Starting services with pm2..."
 pm2 delete all 2>/dev/null || true
