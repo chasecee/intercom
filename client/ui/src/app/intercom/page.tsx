@@ -33,6 +33,7 @@ export default function IntercomPage() {
 
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceCandidatePoolSize: 0,
     });
     pcRef.current = pc;
 
@@ -62,9 +63,32 @@ export default function IntercomPage() {
         makingOfferRef.current = true;
         setStatus("connecting");
         setDetail("Negotiating peer connection");
-        const offer = await pcRef.current.createOffer();
+        const offer = await pcRef.current.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: false,
+        });
         if (pcRef.current.signalingState !== "stable") return;
-        await pcRef.current.setLocalDescription(offer);
+        
+        const modifiedOffer = {
+          ...offer,
+          sdp: offer.sdp
+            ?.replace(/a=rtpmap:(\d+) opus\/48000\/2/g, "a=rtpmap:$1 opus/48000/1")
+            .replace(/a=fmtp:(\d+) (.+)/g, (match, pt, params) => {
+              if (params.includes("opus")) {
+                const cleanParams = params
+                  .replace(/maxaveragebitrate=\d+/, "")
+                  .replace(/usedtx=\d+/, "")
+                  .replace(/stereo=\d+/, "")
+                  .replace(/sprop-stereo=\d+/, "")
+                  .replace(/;+/g, ";")
+                  .replace(/^;|;$/g, "");
+                return `a=fmtp:${pt} ${cleanParams};maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0`;
+              }
+              return match;
+            }),
+        };
+        
+        await pcRef.current.setLocalDescription(modifiedOffer);
         if (pcRef.current.localDescription) {
           socketRef.current.emit("signal", {
             room: ROOM,
@@ -85,18 +109,85 @@ export default function IntercomPage() {
         setDetail("Requesting microphone access");
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            sampleRate: 48000,
+            channelCount: 1,
           },
           video: false,
         });
         if (stopped) return;
         localStreamRef.current = stream;
         setMediaGranted(true);
-        stream.getTracks().forEach((track) => {
-          pc.addTrack(track, stream);
-        });
+        
+        const audioTrack = stream.getAudioTracks()[0];
+        if (audioTrack) {
+          const sender = pc.addTrack(audioTrack, stream);
+          
+          const configureLowLatency = async () => {
+            try {
+              if ("setCodecPreferences" in RTCRtpTransceiver.prototype) {
+                const transceivers = pc.getTransceivers();
+                const transceiver = transceivers.find((t) => t.sender === sender);
+                if (transceiver) {
+                  const codecs = RTCRtpReceiver.getCapabilities("audio")?.codecs;
+                  const opusCodec = codecs?.find((c) => c.mimeType === "audio/opus");
+                  if (opusCodec) {
+                    opusCodec.clockRate = 48000;
+                    opusCodec.channels = 1;
+                    if (opusCodec.sdpFmtpLine) {
+                      opusCodec.sdpFmtpLine = opusCodec.sdpFmtpLine
+                        .replace(/maxplaybackrate=\d+/, "maxplaybackrate=48000")
+                        .replace(/stereo=\d+/, "stereo=0")
+                        .replace(/sprop-stereo=\d+/, "sprop-stereo=0");
+                      if (!opusCodec.sdpFmtpLine.includes("maxaveragebitrate")) {
+                        opusCodec.sdpFmtpLine += ";maxaveragebitrate=32000";
+                      }
+                      if (!opusCodec.sdpFmtpLine.includes("usedtx")) {
+                        opusCodec.sdpFmtpLine += ";usedtx=0";
+                      }
+                    }
+                    transceiver.setCodecPreferences([opusCodec]);
+                  }
+                }
+              }
+              
+              const params = sender.getParameters();
+              if (params.codecs) {
+                const opusCodec = params.codecs.find(
+                  (codec) => codec.mimeType === "audio/opus"
+                );
+                if (opusCodec && opusCodec.sdpFmtpLine) {
+                  opusCodec.sdpFmtpLine = opusCodec.sdpFmtpLine
+                    .replace(/maxplaybackrate=\d+/, "maxplaybackrate=48000")
+                    .replace(/stereo=\d+/, "stereo=0")
+                    .replace(/sprop-stereo=\d+/, "sprop-stereo=0");
+                  if (!opusCodec.sdpFmtpLine.includes("maxaveragebitrate")) {
+                    opusCodec.sdpFmtpLine += ";maxaveragebitrate=32000";
+                  }
+                  if (!opusCodec.sdpFmtpLine.includes("usedtx")) {
+                    opusCodec.sdpFmtpLine += ";usedtx=0";
+                  }
+                  await sender.setParameters(params);
+                }
+              }
+            } catch (err) {
+              console.warn("Failed to configure low-latency codec:", err);
+            }
+          };
+          
+          if (pc.connectionState === "new") {
+            await configureLowLatency();
+          } else {
+            pc.addEventListener("connectionstatechange", () => {
+              if (pc.connectionState === "connected") {
+                void configureLowLatency();
+              }
+            }, { once: true });
+          }
+        }
+        
         pc.addEventListener("negotiationneeded", handleNegotiationNeeded);
       } catch (error) {
         const message =
@@ -141,8 +232,31 @@ export default function IntercomPage() {
           settingRemoteAnswerPendingRef.current = false;
 
           if (description.type === "offer") {
-            const answer = await pcCurrent.createAnswer();
-            await pcCurrent.setLocalDescription(answer);
+            const answer = await pcCurrent.createAnswer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: false,
+            });
+            
+            const modifiedAnswer = {
+              ...answer,
+              sdp: answer.sdp
+                ?.replace(/a=rtpmap:(\d+) opus\/48000\/2/g, "a=rtpmap:$1 opus/48000/1")
+                .replace(/a=fmtp:(\d+) (.+)/g, (match, pt, params) => {
+                  if (params.includes("opus")) {
+                    const cleanParams = params
+                      .replace(/maxaveragebitrate=\d+/, "")
+                      .replace(/usedtx=\d+/, "")
+                      .replace(/stereo=\d+/, "")
+                      .replace(/sprop-stereo=\d+/, "")
+                      .replace(/;+/g, ";")
+                      .replace(/^;|;$/g, "");
+                    return `a=fmtp:${pt} ${cleanParams};maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0`;
+                  }
+                  return match;
+                }),
+            };
+            
+            await pcCurrent.setLocalDescription(modifiedAnswer);
             if (pcCurrent.localDescription && socketRef.current) {
               socketRef.current.emit("signal", {
                 room: ROOM,
@@ -169,7 +283,12 @@ export default function IntercomPage() {
       const stream = event.streams[0];
       if (!stream) return;
       if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = stream;
+        const audio = remoteAudioRef.current;
+        audio.srcObject = stream;
+        audio.playbackRate = 1.0;
+        if ("setSinkId" in audio && typeof audio.setSinkId === "function") {
+          audio.setSinkId("").catch(() => {});
+        }
       }
     };
 
@@ -244,7 +363,13 @@ export default function IntercomPage() {
           <p className="text-sm text-zinc-300">
             Audio link stays open; leave this tab foregrounded on the tablet.
           </p>
-          <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+          <audio
+            ref={remoteAudioRef}
+            autoPlay
+            playsInline
+            className="hidden"
+            preload="none"
+          />
         </section>
       </main>
     </div>
