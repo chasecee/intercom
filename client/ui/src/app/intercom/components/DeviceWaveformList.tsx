@@ -29,7 +29,6 @@ export function DeviceWaveformList({
       if (!audioElement) {
         audioElement = document.createElement("audio");
         audioElement.autoplay = true;
-        audioElement.playsInline = true;
         audioElement.preload = "none";
         audioRefsRef.current.set(deviceId, audioElement);
       }
