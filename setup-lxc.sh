@@ -33,23 +33,23 @@ fi
 
 cd /opt/intercom
 
-echo "Installing dependencies..."
-cd server && npm ci
-cd ../client/ui && npm ci
-
-echo "Building Next.js app..."
-npm run build
-
-echo "Creating .env.local..."
-cat >.env.local <<EOF
-NEXT_PUBLIC_SIGNALING_URL=http://${LXC_IP}:3001
-NEXT_PUBLIC_INTERCOM_ROOM=door
-EOF
-
 if [[ -f /opt/intercom/package-lock.json ]]; then
   echo "Removing root package-lock.json to avoid Next.js warnings..."
   rm -f /opt/intercom/package-lock.json
 fi
+
+echo "Installing dependencies..."
+cd server && npm ci
+cd ../client/ui && npm ci
+
+echo "Creating .env.local..."
+cat >client/ui/.env.local <<EOF
+NEXT_PUBLIC_SIGNALING_URL=http://${LXC_IP}:3001
+NEXT_PUBLIC_INTERCOM_ROOM=door
+EOF
+
+echo "Building Next.js app..."
+cd client/ui && npm run build
 
 echo "Starting services with pm2..."
 pm2 delete all 2>/dev/null || true
