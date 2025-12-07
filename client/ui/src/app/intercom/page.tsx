@@ -147,32 +147,6 @@ export default function IntercomPage() {
           
           const configureLowLatency = async () => {
             try {
-              if ("setCodecPreferences" in RTCRtpTransceiver.prototype) {
-                const transceivers = pc.getTransceivers();
-                const transceiver = transceivers.find((t) => t.sender === sender);
-                if (transceiver) {
-                  const codecs = RTCRtpReceiver.getCapabilities("audio")?.codecs;
-                  const opusCodec = codecs?.find((c) => c.mimeType === "audio/opus");
-                  if (opusCodec) {
-                    opusCodec.clockRate = 48000;
-                    opusCodec.channels = 1;
-                    if (opusCodec.sdpFmtpLine) {
-                      opusCodec.sdpFmtpLine = opusCodec.sdpFmtpLine
-                        .replace(/maxplaybackrate=\d+/, "maxplaybackrate=48000")
-                        .replace(/stereo=\d+/, "stereo=0")
-                        .replace(/sprop-stereo=\d+/, "sprop-stereo=0");
-                      if (!opusCodec.sdpFmtpLine.includes("maxaveragebitrate")) {
-                        opusCodec.sdpFmtpLine += ";maxaveragebitrate=32000";
-                      }
-                      if (!opusCodec.sdpFmtpLine.includes("usedtx")) {
-                        opusCodec.sdpFmtpLine += ";usedtx=0";
-                      }
-                    }
-                    transceiver.setCodecPreferences([opusCodec]);
-                  }
-                }
-              }
-              
               const params = sender.getParameters();
               if (params.codecs) {
                 const opusCodec = params.codecs.find(
