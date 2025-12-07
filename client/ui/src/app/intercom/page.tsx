@@ -15,6 +15,8 @@ if (!SIGNALING_URL) {
   throw new Error("NEXT_PUBLIC_SIGNALING_URL is required");
 }
 
+const SIGNALING_URL_STRING: string = SIGNALING_URL;
+
 export default function IntercomPage() {
   const [status, setStatus] = useState<PeerStatus>("idle");
   const [detail, setDetail] = useState<string | null>(null);
@@ -33,12 +35,14 @@ export default function IntercomPage() {
   const audioTrackRef = useRef<MediaStreamTrack | null>(null);
   const localAudioContextRef = useRef<AudioContext | null>(null);
   const localFilterRef = useRef<BiquadFilterNode | null>(null);
-  const localDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const localDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(
+    null
+  );
 
   useEffect(() => {
     let stopped = false;
 
-    const socket = io(SIGNALING_URL, { transports: ["websocket"] });
+    const socket = io(SIGNALING_URL_STRING, { transports: ["websocket"] });
     socketRef.current = socket;
 
     const pc = new RTCPeerConnection({
@@ -87,7 +91,8 @@ export default function IntercomPage() {
           });
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Negotiation failed";
+        const message =
+          err instanceof Error ? err.message : "Negotiation failed";
         console.error("Negotiation error:", err);
         setStatus("error");
         setDetail(`Negotiation failed: ${message}`);
@@ -111,7 +116,7 @@ export default function IntercomPage() {
           video: false,
         });
         if (stopped) return;
-        
+
         const audioContext = new AudioContext({ sampleRate: 48000 });
         const source = audioContext.createMediaStreamSource(stream);
         const filter = audioContext.createBiquadFilter();
@@ -119,32 +124,34 @@ export default function IntercomPage() {
         filter.frequency.value = 50;
         filter.Q.value = 1;
         const destination = audioContext.createMediaStreamDestination();
-        
+
         source.connect(filter);
         filter.connect(destination);
-        
+
         localAudioContextRef.current = audioContext;
         localFilterRef.current = filter;
         localDestinationRef.current = destination;
-        
+
         const filteredStream = destination.stream;
         localStreamRef.current = filteredStream;
         setMediaGranted(true);
-        
+
         const audioTrack = filteredStream.getAudioTracks()[0];
         if (audioTrack) {
           audioTrackRef.current = audioTrack;
           audioTrack.enabled = false;
         }
-        
+
         filteredStream.getTracks().forEach((track) => {
           pc.addTrack(track, filteredStream);
         });
-        
+
         pc.addEventListener("negotiationneeded", handleNegotiationNeeded);
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "Microphone permission failed";
+          error instanceof Error
+            ? error.message
+            : "Microphone permission failed";
         setStatus("error");
         setDetail(message);
       }
@@ -198,7 +205,8 @@ export default function IntercomPage() {
           await pcCurrent.addIceCandidate(payload);
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Signaling handling failed";
+        const message =
+          err instanceof Error ? err.message : "Signaling handling failed";
         console.error("Signal handling error:", err);
         setStatus("error");
         setDetail(`Signaling failed: ${message}`);
@@ -289,7 +297,7 @@ export default function IntercomPage() {
         {showConnectionInfo && (
           <ConnectionInfo
             mediaGranted={mediaGranted}
-            signalingUrl={SIGNALING_URL}
+            signalingUrl={SIGNALING_URL_STRING}
             iceState={iceState}
           />
         )}
@@ -306,4 +314,3 @@ export default function IntercomPage() {
     </div>
   );
 }
-
