@@ -8,12 +8,8 @@ import {
   startTransition,
 } from "react";
 import { io, type Socket } from "socket.io-client";
-import { StatusHeader } from "./components/StatusHeader";
-import { ConnectionInfo } from "./components/ConnectionInfo";
-import { AudioControls } from "./components/AudioControls";
 import { DeviceNameModal } from "./components/DeviceNameModal";
-import { TargetSelector } from "./components/TargetSelector";
-import { DeviceWaveformList } from "./components/DeviceWaveformList";
+import { DeviceToolbar } from "./components/DeviceToolbar";
 
 type PeerStatus = "idle" | "connecting" | "live" | "error";
 
@@ -41,14 +37,13 @@ export default function IntercomPage() {
     Map<string, MediaStream>
   >(new Map());
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [showConnectionInfo, setShowConnectionInfo] = useState(false);
   const [deviceName, setDeviceName] = useState<string | null>(null);
   const [showDeviceNameModal, setShowDeviceNameModal] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
-  const [isEditingDeviceName, setIsEditingDeviceName] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const [selectedTargets, setSelectedTargets] = useState<string[]>(["ALL"]);
+  const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const activeConnectionsRef = useRef<Map<string, RTCPeerConnection>>(
     new Map()
@@ -91,24 +86,6 @@ export default function IntercomPage() {
     if (socketRef.current?.connected) {
       socketRef.current.emit("register-device", { displayName: name });
     }
-  };
-
-  const handleDeviceNameEdit = () => {
-    setIsEditingDeviceName(true);
-  };
-
-  const handleDeviceNameChange = (newName: string) => {
-    const trimmed = newName.trim();
-    if (trimmed && trimmed !== deviceName) {
-      setDeviceName(trimmed);
-      localStorage.setItem("deviceName", trimmed);
-      if (socketRef.current?.connected) {
-        socketRef.current.emit("update-device-name", {
-          displayName: trimmed,
-        });
-      }
-    }
-    setIsEditingDeviceName(false);
   };
 
   useEffect(() => {
@@ -574,73 +551,45 @@ export default function IntercomPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="h-screen overflow-hidden bg-black text-white">
       {showDeviceNameModal && <DeviceNameModal onSave={handleDeviceNameSave} />}
-      <main className="mx-auto flex max-w-3xl flex-col gap-8 px-6 py-12">
-        <StatusHeader
-          status={status}
-          detail={detail}
-          onToggleInfo={() => setShowConnectionInfo((prev) => !prev)}
+      <DeviceToolbar
+        devices={devices}
+        currentDeviceId={currentDeviceId}
+        currentDeviceName={deviceName}
+        selectedTargets={selectedTargets}
+        incomingStreams={incomingStreams}
+        localStream={localStream}
+        isPttPressed={isPttPressed}
+        isPttLocked={isPttLocked}
+        isRemoteMuted={isRemoteMuted}
+        onSelectionChange={setSelectedTargets}
+        onPttDown={handlePttDown}
+        onPttUp={handlePttUp}
+        onPttClick={handlePttToggle}
+        onToggleLock={togglePttLock}
+        onToggleRemoteMute={toggleRemoteMute}
+        onDeviceNameChange={(name) => {
+          setDeviceName(name);
+          localStorage.setItem("deviceName", name);
+          if (socketRef.current?.connected) {
+            socketRef.current.emit("update-device-name", {
+              displayName: name,
+            });
+          }
+        }}
+        onExpandedChange={setIsToolbarExpanded}
+      />
+      <div
+        className="fixed left-0 right-0 bottom-0 overflow-hidden"
+        style={{ top: isToolbarExpanded ? "420px" : "80px" }}
+      >
+        <iframe
+          src="http://192.168.4.251:8123/lovelace-tablet/"
+          className="w-full h-full border-0"
+          title="Home Assistant Tablet Dashboard"
         />
-        {deviceName && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-zinc-400">Device:</span>
-            {isEditingDeviceName ? (
-              <input
-                type="text"
-                defaultValue={deviceName}
-                onBlur={(e) => handleDeviceNameChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleDeviceNameChange(e.currentTarget.value);
-                  } else if (e.key === "Escape") {
-                    setIsEditingDeviceName(false);
-                  }
-                }}
-                className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-white focus:border-zinc-600 focus:outline-none"
-                autoFocus
-              />
-            ) : (
-              <button
-                onClick={handleDeviceNameEdit}
-                className="text-sm font-medium text-zinc-300 hover:text-white"
-              >
-                {deviceName}
-              </button>
-            )}
-          </div>
-        )}
-        {showConnectionInfo && (
-          <ConnectionInfo
-            mediaGranted={mediaGranted}
-            signalingUrl={SIGNALING_URL_STRING}
-            iceState="connected"
-          />
-        )}
-        <TargetSelector
-          devices={devices}
-          currentDeviceId={currentDeviceId}
-          selectedTargets={selectedTargets}
-          onSelectionChange={setSelectedTargets}
-        />
-        <AudioControls
-          localStream={localStream}
-          isPttPressed={isPttPressed}
-          isLocked={isPttLocked}
-          onPttDown={handlePttDown}
-          onPttUp={handlePttUp}
-          onPttClick={handlePttToggle}
-          onToggleLock={togglePttLock}
-        />
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-6">
-          <DeviceWaveformList
-            devices={devices}
-            incomingStreams={incomingStreams}
-            isRemoteMuted={isRemoteMuted}
-            onToggleRemoteMute={toggleRemoteMute}
-          />
-        </div>
-      </main>
+      </div>
     </div>
   );
 }
