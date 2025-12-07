@@ -2,6 +2,8 @@
 
 Local-only WebRTC audio intercom for Fire tablets. Next.js + Tailwind (client) and Socket.io signaling (server). Tablets hit `http://LXC_IP:3000/intercom`.
 
+Setup Summary: A WebRTC audio intercom for Fire tablets: Next.js 16 (App Router) + React 19 + Tailwind CSS 4 client (client/ui) and an Express + Socket.io signaling server (server). Development runs on macOS (UI on 3000, signaling on 3001); production deploys to Proxmox LXC containers (Debian 12/13) via setup-lxc.sh, which installs Node.js LTS, builds the Next.js app, configures environment variables (NEXT_PUBLIC_SIGNALING_URL, NEXT_PUBLIC_INTERCOM_ROOM), and runs both services under pm2 with systemd integration. The client uses WebRTC peer connections (Google STUN) with Socket.io signaling, Web Audio API highpass filtering, push-to-talk controls, and connection state monitoring. Tablets access http://LXC_IP:3000/intercom; optional Caddy HTTPS proxy supports macOS/iOS testing. The codebase uses TypeScript, minimal dependencies, and a monorepo structure with separate client/server packages.
+
 ## Prereqs
 
 - Node 20+ (Nodesource LTS repo is fine).

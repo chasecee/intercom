@@ -33,26 +33,71 @@ const io = new Server(server, {
   },
 });
 
+const devices = new Map();
+
+const broadcastDeviceList = () => {
+  const deviceList = Array.from(devices.values()).map((device) => ({
+    deviceId: device.deviceId,
+    displayName: device.displayName,
+    online: true,
+  }));
+  io.emit("device-list", deviceList);
+};
+
 io.on("connection", (socket) => {
-  socket.on("join", (room) => {
-    if (typeof room !== "string") return;
-    const trimmed = room.trim();
-    if (!trimmed) return;
-    socket.join(trimmed);
-    socket.data.room = trimmed;
+  socket.on("register-device", (payload) => {
+    const { displayName } = payload || {};
+    if (typeof displayName !== "string" || !displayName.trim()) return;
+
+    devices.set(socket.id, {
+      deviceId: socket.id,
+      displayName: displayName.trim(),
+    });
+
+    broadcastDeviceList();
+  });
+
+  socket.on("update-device-name", (payload) => {
+    const { displayName } = payload || {};
+    if (typeof displayName !== "string" || !displayName.trim()) return;
+
+    const device = devices.get(socket.id);
+    if (device) {
+      device.displayName = displayName.trim();
+      broadcastDeviceList();
+    }
   });
 
   socket.on("signal", (payload) => {
-    const { room, data } = payload || {};
-    if (typeof room !== "string") return;
-    const trimmed = room.trim();
-    if (!trimmed || !data) return;
-    socket.to(trimmed).emit("signal", data);
+    const { callId, fromDeviceId, targetDeviceId, data } = payload || {};
+
+    if (targetDeviceId && typeof targetDeviceId === "string") {
+      const targetSocket = Array.from(io.sockets.sockets.values()).find(
+        (s) => s.id === targetDeviceId
+      );
+      if (targetSocket) {
+        targetSocket.emit("signal", {
+          callId,
+          fromDeviceId,
+          targetDeviceId,
+          data,
+        });
+      }
+    } else {
+      const { room, data: roomData } = payload || {};
+      if (typeof room === "string") {
+        const trimmed = room.trim();
+        if (trimmed && roomData) {
+          socket.to(trimmed).emit("signal", roomData);
+        }
+      }
+    }
   });
 
   socket.on("disconnect", () => {
-    if (socket.data.room) {
-      socket.leave(socket.data.room);
+    if (devices.has(socket.id)) {
+      devices.delete(socket.id);
+      broadcastDeviceList();
     }
   });
 });
