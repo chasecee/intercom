@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  startTransition,
+} from "react";
 import { io, type Socket } from "socket.io-client";
 import { StatusHeader } from "./components/StatusHeader";
 import { ConnectionInfo } from "./components/ConnectionInfo";
@@ -36,14 +42,9 @@ export default function IntercomPage() {
   >(new Map());
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [showConnectionInfo, setShowConnectionInfo] = useState(false);
-  const [deviceName, setDeviceName] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem("deviceName");
-  });
-  const [showDeviceNameModal, setShowDeviceNameModal] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return !localStorage.getItem("deviceName");
-  });
+  const [deviceName, setDeviceName] = useState<string | null>(null);
+  const [showDeviceNameModal, setShowDeviceNameModal] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const [isEditingDeviceName, setIsEditingDeviceName] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
@@ -69,6 +70,20 @@ export default function IntercomPage() {
   const localDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(
     null
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const stored = localStorage.getItem("deviceName");
+    startTransition(() => {
+      if (stored) {
+        setDeviceName(stored);
+      } else {
+        setShowDeviceNameModal(true);
+      }
+      setIsHydrated(true);
+    });
+  }, []);
 
   const handleDeviceNameSave = (name: string) => {
     setDeviceName(name);
@@ -303,8 +318,15 @@ export default function IntercomPage() {
           ) {
             const isInIframe = window.self !== window.top;
             if (isInIframe) {
-              message =
-                "Microphone access blocked in iframe. Home Assistant must allow microphone permissions on the iframe.";
+              const parentOrigin = document.referrer
+                ? new URL(document.referrer).origin
+                : "parent page";
+              const isHttp = parentOrigin.startsWith("http://");
+              message = `Microphone blocked. Parent origin: ${parentOrigin}. ${
+                isHttp
+                  ? "HTTP sites may block microphone access. Try: 1) Reset permissions for the parent site, 2) Open this page directly to grant permission first, or 3) Use HTTPS for Home Assistant."
+                  : "Check browser site settings for microphone permission."
+              }`;
             } else {
               message =
                 "Microphone permission denied. Please allow microphone access in your browser settings.";
@@ -314,10 +336,20 @@ export default function IntercomPage() {
               "No microphone found. Please connect a microphone and try again.";
           } else if (error.name === "NotReadableError") {
             message = "Microphone is in use by another application.";
+          } else if (error.name === "SecurityError") {
+            const isInIframe = window.self !== window.top;
+            if (isInIframe) {
+              message =
+                "Security error: Microphone access blocked. Check iframe sandbox attributes and Permissions-Policy headers.";
+            } else {
+              message =
+                "Security error: Microphone access not allowed in this context.";
+            }
           }
         }
         setStatus("error");
         setDetail(message);
+        console.error("Microphone access error:", error);
       }
     })();
 
@@ -530,6 +562,16 @@ export default function IntercomPage() {
       window.removeEventListener("keyup", handleKeyUp);
     };
   }, [isPttPressed, isPttLocked, handlePttDown, handlePttToggle, handlePttUp]);
+
+  if (!isHydrated) {
+    return (
+      <div className="min-h-screen bg-black text-white">
+        <main className="mx-auto flex max-w-3xl flex-col gap-8 px-6 py-12">
+          <div className="text-zinc-400">Loading...</div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black text-white">
