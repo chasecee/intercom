@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
+import { StatusHeader } from "./components/StatusHeader";
+import { ConnectionInfo } from "./components/ConnectionInfo";
+import { AudioControls } from "./components/AudioControls";
 
 type PeerStatus = "idle" | "connecting" | "live" | "error";
 
@@ -17,13 +20,20 @@ export default function IntercomPage() {
   const [detail, setDetail] = useState<string | null>(null);
   const [mediaGranted, setMediaGranted] = useState(false);
   const [iceState, setIceState] = useState<string>("new");
+  const [isPttPressed, setIsPttPressed] = useState(false);
+  const [isRemoteMuted, setIsRemoteMuted] = useState(false);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [showConnectionInfo, setShowConnectionInfo] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const makingOfferRef = useRef(false);
   const settingRemoteAnswerPendingRef = useRef(false);
   const joinedRef = useRef(false);
+  const audioTrackRef = useRef<MediaStreamTrack | null>(null);
+  const localAudioContextRef = useRef<AudioContext | null>(null);
+  const localFilterRef = useRef<BiquadFilterNode | null>(null);
+  const localDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
   useEffect(() => {
     let stopped = false;
@@ -53,6 +63,10 @@ export default function IntercomPage() {
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
         localStreamRef.current = null;
+      }
+      if (localAudioContextRef.current) {
+        localAudioContextRef.current.close();
+        localAudioContextRef.current = null;
       }
     };
 
@@ -89,7 +103,7 @@ export default function IntercomPage() {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: false,
-            noiseSuppression: false,
+            noiseSuppression: true,
             autoGainControl: false,
             sampleRate: 48000,
             channelCount: 1,
@@ -97,11 +111,34 @@ export default function IntercomPage() {
           video: false,
         });
         if (stopped) return;
-        localStreamRef.current = stream;
+        
+        const audioContext = new AudioContext({ sampleRate: 48000 });
+        const source = audioContext.createMediaStreamSource(stream);
+        const filter = audioContext.createBiquadFilter();
+        filter.type = "highpass";
+        filter.frequency.value = 50;
+        filter.Q.value = 1;
+        const destination = audioContext.createMediaStreamDestination();
+        
+        source.connect(filter);
+        filter.connect(destination);
+        
+        localAudioContextRef.current = audioContext;
+        localFilterRef.current = filter;
+        localDestinationRef.current = destination;
+        
+        const filteredStream = destination.stream;
+        localStreamRef.current = filteredStream;
         setMediaGranted(true);
         
-        stream.getTracks().forEach((track) => {
-          pc.addTrack(track, stream);
+        const audioTrack = filteredStream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrackRef.current = audioTrack;
+          audioTrack.enabled = false;
+        }
+        
+        filteredStream.getTracks().forEach((track) => {
+          pc.addTrack(track, filteredStream);
         });
         
         pc.addEventListener("negotiationneeded", handleNegotiationNeeded);
@@ -177,14 +214,7 @@ export default function IntercomPage() {
     pc.ontrack = (event) => {
       const stream = event.streams[0];
       if (!stream) return;
-      if (remoteAudioRef.current) {
-        const audio = remoteAudioRef.current;
-        audio.srcObject = stream;
-        audio.playbackRate = 1.0;
-        if ("setSinkId" in audio && typeof audio.setSinkId === "function") {
-          audio.setSinkId("").catch(() => {});
-        }
-      }
+      setRemoteStream(stream);
     };
 
     pc.onconnectionstatechange = () => {
@@ -205,67 +235,73 @@ export default function IntercomPage() {
     };
   }, []);
 
-  const statusColor = useMemo(() => {
-    if (status === "live") return "bg-green-500";
-    if (status === "error") return "bg-red-500";
-    return "bg-amber-500";
-  }, [status]);
+  const handlePttDown = () => {
+    setIsPttPressed(true);
+    if (audioTrackRef.current) {
+      audioTrackRef.current.enabled = true;
+    }
+  };
+
+  const handlePttUp = () => {
+    setIsPttPressed(false);
+    if (audioTrackRef.current) {
+      audioTrackRef.current.enabled = false;
+    }
+  };
+
+  const toggleRemoteMute = () => {
+    setIsRemoteMuted((prev) => !prev);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !isPttPressed) {
+        e.preventDefault();
+        handlePttDown();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space" && isPttPressed) {
+        e.preventDefault();
+        handlePttUp();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [isPttPressed]);
 
   return (
     <div className="min-h-screen bg-black text-white">
       <main className="mx-auto flex max-w-3xl flex-col gap-8 px-6 py-12">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.2em] text-zinc-400">
-              Intercom
-            </p>
-            <h1 className="text-3xl font-semibold">Door audio link</h1>
-            <p className="text-sm text-zinc-400">Room: {ROOM}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className={`h-3 w-3 rounded-full ${statusColor}`} />
-            <div className="text-right">
-              <p className="text-sm font-medium capitalize">{status}</p>
-              {detail ? <p className="text-xs text-zinc-400">{detail}</p> : null}
-            </div>
-          </div>
-        </div>
-
-        <section className="grid gap-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-6">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-zinc-300">Microphone</div>
-            <div
-              className={`rounded-full px-3 py-1 text-xs ${
-                mediaGranted
-                  ? "bg-emerald-600/20 text-emerald-200"
-                  : "bg-zinc-800 text-zinc-400"
-              }`}
-            >
-              {mediaGranted ? "granted" : "pending"}
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-zinc-300">Signaling</div>
-            <div className="text-xs text-zinc-400">{SIGNALING_URL}</div>
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-zinc-300">ICE state</div>
-            <div className="text-xs text-zinc-400">{iceState}</div>
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-6">
-          <p className="text-sm text-zinc-300">
-            Audio link stays open; leave this tab foregrounded on the tablet.
-          </p>
-          <audio
-            ref={remoteAudioRef}
-            autoPlay
-            playsInline
-            className="hidden"
-            preload="none"
+        <StatusHeader
+          status={status}
+          detail={detail}
+          room={ROOM}
+          onToggleInfo={() => setShowConnectionInfo((prev) => !prev)}
+        />
+        {showConnectionInfo && (
+          <ConnectionInfo
+            mediaGranted={mediaGranted}
+            signalingUrl={SIGNALING_URL}
+            iceState={iceState}
           />
-        </section>
+        )}
+        <AudioControls
+          localStream={localStreamRef.current}
+          remoteStream={remoteStream}
+          isPttPressed={isPttPressed}
+          isRemoteMuted={isRemoteMuted}
+          onPttDown={handlePttDown}
+          onPttUp={handlePttUp}
+          onToggleRemoteMute={toggleRemoteMute}
+        />
       </main>
     </div>
   );
