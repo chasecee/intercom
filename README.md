@@ -192,3 +192,22 @@ npm run dev
 - Ensure Caddyfile proxies `/socket.io/*` to `localhost:3001`
 - Check CORS allows the correct origin
 - Verify signaling URL in `.env.local` matches your setup (HTTP vs HTTPS)
+
+**Services not starting after reboot:**
+
+```bash
+# Check if pm2 systemd service exists
+systemctl status pm2-root
+
+# If not configured, set it up:
+pm2 startup
+# Then run the command it outputs (as root)
+
+# Or manually start services:
+pm2 resurrect
+pm2 save
+
+# Verify services are running:
+pm2 ls
+pm2 logs
+```

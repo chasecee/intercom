@@ -63,29 +63,47 @@ export default function IntercomPage() {
         makingOfferRef.current = true;
         setStatus("connecting");
         setDetail("Negotiating peer connection");
-        const offer = await pcRef.current.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: false,
-        });
+        const offer = await pcRef.current.createOffer();
         if (pcRef.current.signalingState !== "stable") return;
+        
+        let modifiedSdp = offer.sdp || "";
+        try {
+          modifiedSdp = modifiedSdp
+            .replace(/a=rtpmap:(\d+) opus\/48000\/2/g, "a=rtpmap:$1 opus/48000/1");
+          
+          const fmtpRegex = /a=fmtp:(\d+) (.+)/g;
+          let match;
+          const fmtpReplacements: Array<{ pt: string; newLine: string }> = [];
+          
+          while ((match = fmtpRegex.exec(modifiedSdp)) !== null) {
+            const pt = match[1];
+            const params = match[2];
+            if (params.includes("opus")) {
+              const existingParams = params.split(";").filter(p => {
+                const key = p.split("=")[0];
+                return !["maxaveragebitrate", "usedtx", "stereo", "sprop-stereo"].includes(key);
+              }).join(";");
+              const newParams = existingParams 
+                ? `${existingParams};maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0`
+                : "maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0";
+              fmtpReplacements.push({ pt, newLine: `a=fmtp:${pt} ${newParams}` });
+            }
+          }
+          
+          for (const { pt, newLine } of fmtpReplacements) {
+            modifiedSdp = modifiedSdp.replace(
+              new RegExp(`a=fmtp:${pt} .+`, "g"),
+              newLine
+            );
+          }
+        } catch (sdpErr) {
+          console.warn("SDP modification failed, using original:", sdpErr);
+          modifiedSdp = offer.sdp || "";
+        }
         
         const modifiedOffer = {
           ...offer,
-          sdp: offer.sdp
-            ?.replace(/a=rtpmap:(\d+) opus\/48000\/2/g, "a=rtpmap:$1 opus/48000/1")
-            .replace(/a=fmtp:(\d+) (.+)/g, (match, pt, params) => {
-              if (params.includes("opus")) {
-                const cleanParams = params
-                  .replace(/maxaveragebitrate=\d+/, "")
-                  .replace(/usedtx=\d+/, "")
-                  .replace(/stereo=\d+/, "")
-                  .replace(/sprop-stereo=\d+/, "")
-                  .replace(/;+/g, ";")
-                  .replace(/^;|;$/g, "");
-                return `a=fmtp:${pt} ${cleanParams};maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0`;
-              }
-              return match;
-            }),
+          sdp: modifiedSdp,
         };
         
         await pcRef.current.setLocalDescription(modifiedOffer);
@@ -95,9 +113,11 @@ export default function IntercomPage() {
             data: pcRef.current.localDescription,
           });
         }
-      } catch {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Negotiation failed";
+        console.error("Negotiation error:", err);
         setStatus("error");
-        setDetail("Negotiation failed");
+        setDetail(`Negotiation failed: ${message}`);
       } finally {
         makingOfferRef.current = false;
       }
@@ -232,28 +252,46 @@ export default function IntercomPage() {
           settingRemoteAnswerPendingRef.current = false;
 
           if (description.type === "offer") {
-            const answer = await pcCurrent.createAnswer({
-              offerToReceiveAudio: true,
-              offerToReceiveVideo: false,
-            });
+            const answer = await pcCurrent.createAnswer();
+            
+            let modifiedAnswerSdp = answer.sdp || "";
+            try {
+              modifiedAnswerSdp = modifiedAnswerSdp
+                .replace(/a=rtpmap:(\d+) opus\/48000\/2/g, "a=rtpmap:$1 opus/48000/1");
+              
+              const fmtpRegex = /a=fmtp:(\d+) (.+)/g;
+              let match;
+              const fmtpReplacements: Array<{ pt: string; newLine: string }> = [];
+              
+              while ((match = fmtpRegex.exec(modifiedAnswerSdp)) !== null) {
+                const pt = match[1];
+                const params = match[2];
+                if (params.includes("opus")) {
+                  const existingParams = params.split(";").filter(p => {
+                    const key = p.split("=")[0];
+                    return !["maxaveragebitrate", "usedtx", "stereo", "sprop-stereo"].includes(key);
+                  }).join(";");
+                  const newParams = existingParams 
+                    ? `${existingParams};maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0`
+                    : "maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0";
+                  fmtpReplacements.push({ pt, newLine: `a=fmtp:${pt} ${newParams}` });
+                }
+              }
+              
+              for (const { pt, newLine } of fmtpReplacements) {
+                modifiedAnswerSdp = modifiedAnswerSdp.replace(
+                  new RegExp(`a=fmtp:${pt} .+`, "g"),
+                  newLine
+                );
+              }
+            } catch (sdpErr) {
+              console.warn("Answer SDP modification failed, using original:", sdpErr);
+              modifiedAnswerSdp = answer.sdp || "";
+            }
             
             const modifiedAnswer = {
               ...answer,
-              sdp: answer.sdp
-                ?.replace(/a=rtpmap:(\d+) opus\/48000\/2/g, "a=rtpmap:$1 opus/48000/1")
-                .replace(/a=fmtp:(\d+) (.+)/g, (match, pt, params) => {
-                  if (params.includes("opus")) {
-                    const cleanParams = params
-                      .replace(/maxaveragebitrate=\d+/, "")
-                      .replace(/usedtx=\d+/, "")
-                      .replace(/stereo=\d+/, "")
-                      .replace(/sprop-stereo=\d+/, "")
-                      .replace(/;+/g, ";")
-                      .replace(/^;|;$/g, "");
-                    return `a=fmtp:${pt} ${cleanParams};maxaveragebitrate=32000;usedtx=0;stereo=0;sprop-stereo=0`;
-                  }
-                  return match;
-                }),
+              sdp: modifiedAnswerSdp,
             };
             
             await pcCurrent.setLocalDescription(modifiedAnswer);
@@ -267,9 +305,11 @@ export default function IntercomPage() {
         } else if ("candidate" in payload) {
           await pcCurrent.addIceCandidate(payload);
         }
-      } catch {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Signaling handling failed";
+        console.error("Signal handling error:", err);
         setStatus("error");
-        setDetail("Signaling handling failed");
+        setDetail(`Signaling failed: ${message}`);
       }
     });
 

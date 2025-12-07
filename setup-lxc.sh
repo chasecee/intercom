@@ -61,7 +61,17 @@ cd /opt/intercom/client/ui
 pm2 start npm --name intercom-ui -- run start
 
 pm2 save
-pm2 startup
+
+if [[ $(id -u) -eq 0 ]]; then
+  echo "Configuring pm2 to start on boot..."
+  STARTUP_CMD=$(pm2 startup systemd -u root --hp /root 2>/dev/null | grep -E "sudo env PATH" || true)
+  if [[ -n "$STARTUP_CMD" ]]; then
+    eval "$STARTUP_CMD" || true
+  fi
+else
+  echo "WARNING: Not running as root. pm2 startup not configured."
+  echo "Run 'pm2 startup' and execute the command it outputs as root."
+fi
 
 echo ""
 echo "Setup complete!"
@@ -70,4 +80,7 @@ pm2 ls
 echo ""
 echo "Tablets should point to: http://${LXC_IP}:3000/intercom"
 echo "View logs: pm2 logs"
+echo ""
+echo "To verify pm2 starts on boot:"
+echo "  systemctl status pm2-root"
 
