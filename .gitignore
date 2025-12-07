@@ -1,0 +1,30 @@
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.DS_Store
+
+# Next.js
+.next
+out
+.vercel
+
+# Build artifacts
+dist
+
+# Env
+.env
+.env.*
+!.env.example
+
+# App-specific
+client/ui/.next
+client/ui/.turbo
+client/ui/.vercel
+client/ui/node_modules
+client/ui/.env.local
+server/node_modules
+server/.env
+
