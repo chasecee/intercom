@@ -70,16 +70,25 @@ After pushing changes from macOS:
 # On LXC
 cd /opt/intercom
 git pull
-cd client/ui && npm ci && npm run build
-pm2 restart intercom-ui
-pm2 restart intercom-signal
+./deploy.sh
 ```
 
-If server code changed:
+The deploy script will:
+
+1. Install server dependencies (`npm ci` in `server/`)
+2. Install client dependencies (`npm ci` in `client/ui/`)
+3. Build the client application (`npm run build`)
+4. Restart both pm2 services (`intercom-signal` and `intercom-ui`)
+
+For manual deployment:
 
 ```bash
-cd /opt/intercom/server && npm ci
+cd /opt/intercom
+git pull
+cd server && npm ci && cd ..
+cd client/ui && npm ci && npm run build && cd ../..
 pm2 restart intercom-signal
+pm2 restart intercom-ui
 ```
 
 ## Reset/redeploy
