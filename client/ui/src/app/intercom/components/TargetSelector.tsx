@@ -46,38 +46,38 @@ export function TargetSelector({
   return (
     <div className="space-y-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-6">
       <h2 className="text-lg font-medium">Transmit To</h2>
-      <div className="space-y-3">
-        <label className="flex cursor-pointer items-center gap-3">
-          <input
-            type="radio"
-            checked={isAllSelected}
-            onChange={handleAllClick}
-            className="h-4 w-4 cursor-pointer accent-green-600"
-          />
-          <span className="text-sm font-medium">All</span>
-        </label>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+        <button
+          onClick={handleAllClick}
+          className={`rounded-lg border-2 px-4 py-3 text-sm font-medium transition-all ${
+            isAllSelected
+              ? "border-green-600 bg-green-600/20 text-green-400"
+              : "border-zinc-700 bg-zinc-900/50 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800/50"
+          }`}
+        >
+          All
+        </button>
         {availableDevices.map((device) => {
           const isSelected =
             !isAllSelected && selectedTargets.includes(device.deviceId);
           return (
-            <label
+            <button
               key={device.deviceId}
-              className="flex cursor-pointer items-center gap-3"
+              onClick={() => handleDeviceToggle(device.deviceId)}
+              className={`rounded-lg border-2 px-4 py-3 text-sm font-medium transition-all ${
+                isSelected
+                  ? "border-green-600 bg-green-600/20 text-green-400"
+                  : "border-zinc-700 bg-zinc-900/50 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800/50"
+              }`}
             >
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => handleDeviceToggle(device.deviceId)}
-                className="h-4 w-4 cursor-pointer accent-green-600"
-              />
-              <span className="text-sm">{device.displayName}</span>
-            </label>
+              {device.displayName}
+            </button>
           );
         })}
-        {availableDevices.length === 0 && (
-          <p className="text-sm text-zinc-500">No other devices connected</p>
-        )}
       </div>
+      {availableDevices.length === 0 && (
+        <p className="text-sm text-zinc-500">No other devices connected</p>
+      )}
     </div>
   );
 }

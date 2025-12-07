@@ -11,7 +11,6 @@ import { DeviceWaveformList } from "./components/DeviceWaveformList";
 
 type PeerStatus = "idle" | "connecting" | "live" | "error";
 
-const ROOM = process.env.NEXT_PUBLIC_INTERCOM_ROOM || "door";
 const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_URL;
 
 if (!SIGNALING_URL) {
@@ -30,6 +29,7 @@ export default function IntercomPage() {
   const [detail, setDetail] = useState<string | null>(null);
   const [mediaGranted, setMediaGranted] = useState(false);
   const [isPttPressed, setIsPttPressed] = useState(false);
+  const [isPttLocked, setIsPttLocked] = useState(false);
   const [isRemoteMuted, setIsRemoteMuted] = useState(false);
   const [incomingStreams, setIncomingStreams] = useState<
     Map<string, MediaStream>
@@ -56,7 +56,6 @@ export default function IntercomPage() {
     Map<string, { makingOffer: boolean; settingRemoteAnswerPending: boolean }>
   >(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
-  const joinedRef = useRef(false);
   const audioTrackRef = useRef<MediaStreamTrack | null>(null);
   const ensureConnectionRef = useRef<
     ((targetDeviceId: string) => Promise<RTCPeerConnection | undefined>) | null
@@ -295,10 +294,28 @@ export default function IntercomPage() {
           audioTrack.enabled = false;
         }
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Microphone permission failed";
+        let message = "Microphone permission failed";
+        if (error instanceof Error) {
+          message = error.message;
+          if (
+            error.name === "NotAllowedError" ||
+            error.name === "PermissionDeniedError"
+          ) {
+            const isInIframe = window.self !== window.top;
+            if (isInIframe) {
+              message =
+                "Microphone access blocked in iframe. Home Assistant must allow microphone permissions on the iframe.";
+            } else {
+              message =
+                "Microphone permission denied. Please allow microphone access in your browser settings.";
+            }
+          } else if (error.name === "NotFoundError") {
+            message =
+              "No microphone found. Please connect a microphone and try again.";
+          } else if (error.name === "NotReadableError") {
+            message = "Microphone is in use by another application.";
+          }
+        }
         setStatus("error");
         setDetail(message);
       }
@@ -310,12 +327,10 @@ export default function IntercomPage() {
       currentDeviceIdRef.current = deviceId;
       setCurrentDeviceId(deviceId);
       setDetail("Signaling online");
-      socket.emit("join", ROOM);
       const storedName = localStorage.getItem("deviceName");
       if (storedName) {
         socket.emit("register-device", { displayName: storedName });
       }
-      joinedRef.current = true;
     });
 
     socket.on("device-list", (deviceList: Device[]) => {
@@ -442,11 +457,46 @@ export default function IntercomPage() {
     }
   }, [resolveTargetDeviceIds]);
 
-  const handlePttUp = () => {
-    setIsPttPressed(false);
-    if (audioTrackRef.current) {
-      audioTrackRef.current.enabled = false;
+  const handlePttUp = useCallback(() => {
+    if (!isPttLocked) {
+      setIsPttPressed(false);
+      if (audioTrackRef.current) {
+        audioTrackRef.current.enabled = false;
+      }
     }
+  }, [isPttLocked]);
+
+  const handlePttToggle = useCallback(async () => {
+    if (isPttPressed) {
+      setIsPttPressed(false);
+      if (audioTrackRef.current) {
+        audioTrackRef.current.enabled = false;
+      }
+    } else {
+      setIsPttPressed(true);
+      if (audioTrackRef.current) {
+        audioTrackRef.current.enabled = true;
+      }
+      const targetIds = resolveTargetDeviceIds();
+      if (ensureConnectionRef.current) {
+        for (const targetId of targetIds) {
+          await ensureConnectionRef.current(targetId);
+        }
+      }
+    }
+  }, [isPttPressed, resolveTargetDeviceIds]);
+
+  const togglePttLock = () => {
+    setIsPttLocked((prev) => {
+      const newLocked = !prev;
+      if (!newLocked && isPttPressed) {
+        setIsPttPressed(false);
+        if (audioTrackRef.current) {
+          audioTrackRef.current.enabled = false;
+        }
+      }
+      return newLocked;
+    });
   };
 
   const toggleRemoteMute = () => {
@@ -455,14 +505,18 @@ export default function IntercomPage() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !isPttPressed) {
+      if (e.code === "Space") {
         e.preventDefault();
-        handlePttDown();
+        if (isPttLocked) {
+          handlePttToggle();
+        } else if (!isPttPressed) {
+          handlePttDown();
+        }
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === "Space" && isPttPressed) {
+      if (e.code === "Space" && !isPttLocked && isPttPressed) {
         e.preventDefault();
         handlePttUp();
       }
@@ -475,7 +529,7 @@ export default function IntercomPage() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [isPttPressed, handlePttDown]);
+  }, [isPttPressed, isPttLocked, handlePttDown, handlePttToggle, handlePttUp]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -484,7 +538,6 @@ export default function IntercomPage() {
         <StatusHeader
           status={status}
           detail={detail}
-          room={ROOM}
           onToggleInfo={() => setShowConnectionInfo((prev) => !prev)}
         />
         {deviceName && (
@@ -531,8 +584,11 @@ export default function IntercomPage() {
         <AudioControls
           localStream={localStream}
           isPttPressed={isPttPressed}
+          isLocked={isPttLocked}
           onPttDown={handlePttDown}
           onPttUp={handlePttUp}
+          onPttClick={handlePttToggle}
+          onToggleLock={togglePttLock}
         />
         <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-6">
           <DeviceWaveformList

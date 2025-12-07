@@ -7,12 +7,10 @@ type PeerStatus = "idle" | "connecting" | "live" | "error";
 export function StatusHeader({
   status,
   detail,
-  room,
   onToggleInfo,
 }: {
   status: PeerStatus;
   detail: string | null;
-  room: string;
   onToggleInfo: () => void;
 }) {
   const statusColor = useMemo(() => {
@@ -24,11 +22,7 @@ export function StatusHeader({
   return (
     <div className="flex items-center justify-between">
       <div>
-        <p className="text-sm uppercase tracking-[0.2em] text-zinc-400">
-          Intercom
-        </p>
-        <h1 className="text-3xl font-semibold">Door audio link</h1>
-        <p className="text-sm text-zinc-400">Room: {room}</p>
+        <p className="text-sm uppercase  text-zinc-400">Intercom</p>
       </div>
       <button
         onClick={onToggleInfo}
@@ -43,4 +37,3 @@ export function StatusHeader({
     </div>
   );
 }
-

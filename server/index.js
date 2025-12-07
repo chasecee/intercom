@@ -16,7 +16,7 @@ app.use(
     origin: origins,
     methods: ["GET", "POST"],
     credentials: true,
-  }),
+  })
 );
 
 app.get("/health", (_req, res) => {
@@ -83,14 +83,6 @@ io.on("connection", (socket) => {
           data,
         });
       }
-    } else {
-      const { room, data: roomData } = payload || {};
-      if (typeof room === "string") {
-        const trimmed = room.trim();
-        if (trimmed && roomData) {
-          socket.to(trimmed).emit("signal", roomData);
-        }
-      }
     }
   });
 
@@ -105,5 +97,3 @@ io.on("connection", (socket) => {
 server.listen(port, () => {
   console.log(`signaling listening on ${port}`);
 });
-
-
