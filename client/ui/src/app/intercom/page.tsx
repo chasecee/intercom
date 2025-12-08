@@ -600,7 +600,7 @@ export default function IntercomPage() {
           </div>
         ) : (
           <iframe
-            src="https://192.168.4.251:8123/lovelace-tablet/"
+            src="https://38e8rd9bu3vqg9xa6yedqt0qtt0jiwz1.ui.nabu.casa/lovelace-tablet/"
             className="w-full h-full border-0"
             title="Home Assistant Tablet Dashboard"
             onLoad={() => {
