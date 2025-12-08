@@ -12,8 +12,6 @@ import { DeviceNameModal } from "./components/DeviceNameModal";
 import { DeviceToolbar } from "./components/DeviceToolbar";
 import { IncomingAudioHandler } from "./components/IncomingAudioHandler";
 
-type PeerStatus = "idle" | "connecting" | "live" | "error";
-
 const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_URL;
 
 if (!SIGNALING_URL) {
@@ -22,15 +20,21 @@ if (!SIGNALING_URL) {
 
 const SIGNALING_URL_STRING: string = SIGNALING_URL;
 
+const sanitizeDeviceName = (name: string): string | null => {
+  if (typeof name !== "string") return null;
+  const sanitized = name
+    .trim()
+    .slice(0, 50)
+    .replace(/[<>\"'&]/g, "");
+  return sanitized || null;
+};
+
 type Device = {
   deviceId: string;
   displayName: string;
 };
 
 export default function IntercomPage() {
-  const [status, setStatus] = useState<PeerStatus>("idle");
-  const [detail, setDetail] = useState<string | null>(null);
-  const [mediaGranted, setMediaGranted] = useState(false);
   const [isPttPressed, setIsPttPressed] = useState(false);
   const [isPttLocked, setIsPttLocked] = useState(false);
   const [isRemoteMuted, setIsRemoteMuted] = useState(false);
@@ -53,6 +57,7 @@ export default function IntercomPage() {
   const connectionStateRef = useRef<
     Map<string, { makingOffer: boolean; settingRemoteAnswerPending: boolean }>
   >(new Map());
+  const connectionTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioTrackRef = useRef<MediaStreamTrack | null>(null);
   const ensureConnectionRef = useRef<
@@ -74,7 +79,16 @@ export default function IntercomPage() {
     const stored = localStorage.getItem("deviceName");
     startTransition(() => {
       if (stored) {
-        setDeviceName(stored);
+        const sanitized = sanitizeDeviceName(stored);
+        if (sanitized && sanitized !== stored) {
+          localStorage.setItem("deviceName", sanitized);
+        }
+        if (sanitized) {
+          setDeviceName(sanitized);
+        } else {
+          localStorage.removeItem("deviceName");
+          setShowDeviceNameModal(true);
+        }
       } else {
         setShowDeviceNameModal(true);
       }
@@ -83,17 +97,26 @@ export default function IntercomPage() {
   }, []);
 
   const handleDeviceNameSave = (name: string) => {
-    setDeviceName(name);
+    const sanitized = sanitizeDeviceName(name);
+    if (!sanitized) return;
+    setDeviceName(sanitized);
     setShowDeviceNameModal(false);
     if (socketRef.current?.connected) {
-      socketRef.current.emit("register-device", { displayName: name });
+      socketRef.current.emit("register-device", { displayName: sanitized });
     }
   };
 
   useEffect(() => {
     let stopped = false;
 
-    const socket = io(SIGNALING_URL_STRING, { transports: ["websocket"] });
+    const socket = io(SIGNALING_URL_STRING, {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: Infinity,
+      timeout: 20000,
+    });
     socketRef.current = socket;
 
     const cleanUp = () => {
@@ -102,6 +125,10 @@ export default function IntercomPage() {
         socketRef.current.disconnect();
         socketRef.current = null;
       }
+      connectionTimeoutsRef.current.forEach((timeout) => {
+        clearTimeout(timeout);
+      });
+      connectionTimeoutsRef.current.clear();
       activeConnectionsRef.current.forEach((pc) => {
         pc.onicecandidate = null;
         pc.ontrack = null;
@@ -158,6 +185,11 @@ export default function IntercomPage() {
       pc.ontrack = (event) => {
         const stream = event.streams[0];
         if (!stream) return;
+        const audioTracks = stream.getAudioTracks();
+        const hasLiveAudioTrack = audioTracks.some(
+          (track) => track.readyState === "live"
+        );
+        if (!hasLiveAudioTrack) return;
         setIncomingStreams((prev) => {
           const next = new Map(prev);
           next.set(targetDeviceId, stream);
@@ -167,10 +199,7 @@ export default function IntercomPage() {
 
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState;
-        if (state === "connected") {
-          setStatus("live");
-          setDetail("Audio link active");
-        } else if (state === "failed" || state === "disconnected") {
+        if (state === "failed" || state === "disconnected") {
           cleanupPeerConnection(targetDeviceId);
         }
       };
@@ -179,6 +208,11 @@ export default function IntercomPage() {
     };
 
     const cleanupPeerConnection = (targetDeviceId: string) => {
+      const timeout = connectionTimeoutsRef.current.get(targetDeviceId);
+      if (timeout) {
+        clearTimeout(timeout);
+        connectionTimeoutsRef.current.delete(targetDeviceId);
+      }
       const pc = activeConnectionsRef.current.get(targetDeviceId);
       if (pc) {
         pc.onicecandidate = null;
@@ -196,8 +230,13 @@ export default function IntercomPage() {
     };
 
     const ensureConnection = async (targetDeviceId: string) => {
-      if (activeConnectionsRef.current.has(targetDeviceId)) {
-        return activeConnectionsRef.current.get(targetDeviceId)!;
+      const existingPc = activeConnectionsRef.current.get(targetDeviceId);
+      if (existingPc) {
+        const state = existingPc.connectionState;
+        if (state === "connected" || state === "connecting") {
+          return existingPc;
+        }
+        cleanupPeerConnection(targetDeviceId);
       }
 
       const pc = createPeerConnection(targetDeviceId);
@@ -205,14 +244,35 @@ export default function IntercomPage() {
 
       if (!currentDeviceIdRef.current) return pc;
 
+      const state = connectionStateRef.current.get(targetDeviceId)!;
+      if (state.makingOffer) {
+        return pc;
+      }
+
+      const existingTimeout = connectionTimeoutsRef.current.get(targetDeviceId);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+
+      const timeoutId = setTimeout(() => {
+        const currentPc = activeConnectionsRef.current.get(targetDeviceId);
+        if (currentPc === pc && currentPc.connectionState !== "connected") {
+          cleanupPeerConnection(targetDeviceId);
+        }
+        connectionTimeoutsRef.current.delete(targetDeviceId);
+      }, 30000);
+      connectionTimeoutsRef.current.set(targetDeviceId, timeoutId);
+
       try {
-        const state = connectionStateRef.current.get(targetDeviceId)!;
         state.makingOffer = true;
-        setStatus("connecting");
-        setDetail("Negotiating peer connection");
 
         const offer = await pc.createOffer();
         if (pc.signalingState !== "stable") {
+          const timeout = connectionTimeoutsRef.current.get(targetDeviceId);
+          if (timeout === timeoutId) {
+            clearTimeout(timeout);
+            connectionTimeoutsRef.current.delete(targetDeviceId);
+          }
           state.makingOffer = false;
           return pc;
         }
@@ -228,16 +288,32 @@ export default function IntercomPage() {
           });
         }
         state.makingOffer = false;
+
+        const originalHandler = pc.onconnectionstatechange;
+        pc.onconnectionstatechange = (event) => {
+          const connectionState = pc.connectionState;
+          const timeout = connectionTimeoutsRef.current.get(targetDeviceId);
+          if (
+            timeout &&
+            (connectionState === "connected" ||
+              connectionState === "failed" ||
+              connectionState === "disconnected")
+          ) {
+            clearTimeout(timeout);
+            connectionTimeoutsRef.current.delete(targetDeviceId);
+          }
+          if (originalHandler) {
+            originalHandler.call(pc, event);
+          }
+        };
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Negotiation failed";
-        console.error("Negotiation error:", err);
-        setStatus("error");
-        setDetail(`Negotiation failed: ${message}`);
-        const state = connectionStateRef.current.get(targetDeviceId);
-        if (state) {
-          state.makingOffer = false;
+        const timeout = connectionTimeoutsRef.current.get(targetDeviceId);
+        if (timeout === timeoutId) {
+          clearTimeout(timeout);
+          connectionTimeoutsRef.current.delete(targetDeviceId);
         }
+        console.error("Negotiation error:", err);
+        state.makingOffer = false;
       }
 
       return pc;
@@ -248,8 +324,6 @@ export default function IntercomPage() {
 
     (async () => {
       try {
-        setStatus("connecting");
-        setDetail("Requesting microphone access");
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: false,
@@ -280,7 +354,6 @@ export default function IntercomPage() {
         const filteredStream = destination.stream;
         localStreamRef.current = filteredStream;
         setLocalStream(filteredStream);
-        setMediaGranted(true);
 
         const audioTrack = filteredStream.getAudioTracks()[0];
         if (audioTrack) {
@@ -288,46 +361,6 @@ export default function IntercomPage() {
           audioTrack.enabled = false;
         }
       } catch (error) {
-        let message = "Microphone permission failed";
-        if (error instanceof Error) {
-          message = error.message;
-          if (
-            error.name === "NotAllowedError" ||
-            error.name === "PermissionDeniedError"
-          ) {
-            const isInIframe = window.self !== window.top;
-            if (isInIframe) {
-              const parentOrigin = document.referrer
-                ? new URL(document.referrer).origin
-                : "parent page";
-              const isHttp = parentOrigin.startsWith("http://");
-              message = `Microphone blocked. Parent origin: ${parentOrigin}. ${
-                isHttp
-                  ? "HTTP sites may block microphone access. Try: 1) Reset permissions for the parent site, 2) Open this page directly to grant permission first, or 3) Use HTTPS for Home Assistant."
-                  : "Check browser site settings for microphone permission."
-              }`;
-            } else {
-              message =
-                "Microphone permission denied. Please allow microphone access in your browser settings.";
-            }
-          } else if (error.name === "NotFoundError") {
-            message =
-              "No microphone found. Please connect a microphone and try again.";
-          } else if (error.name === "NotReadableError") {
-            message = "Microphone is in use by another application.";
-          } else if (error.name === "SecurityError") {
-            const isInIframe = window.self !== window.top;
-            if (isInIframe) {
-              message =
-                "Security error: Microphone access blocked. Check iframe sandbox attributes and Permissions-Policy headers.";
-            } else {
-              message =
-                "Security error: Microphone access not allowed in this context.";
-            }
-          }
-        }
-        setStatus("error");
-        setDetail(message);
         console.error("Microphone access error:", error);
       }
     })();
@@ -337,10 +370,15 @@ export default function IntercomPage() {
       const deviceId = socket.id || null;
       currentDeviceIdRef.current = deviceId;
       setCurrentDeviceId(deviceId);
-      setDetail("Signaling online");
       const storedName = localStorage.getItem("deviceName");
       if (storedName) {
-        socket.emit("register-device", { displayName: storedName });
+        const sanitized = sanitizeDeviceName(storedName);
+        if (sanitized && sanitized !== storedName) {
+          localStorage.setItem("deviceName", sanitized);
+        }
+        if (sanitized) {
+          socket.emit("register-device", { displayName: sanitized });
+        }
       }
     });
 
@@ -359,8 +397,26 @@ export default function IntercomPage() {
     });
 
     socket.on("connect_error", (err) => {
-      setStatus("error");
-      setDetail(`Signaling failed: ${err.message}`);
+      console.error("Signaling connection error:", err.message);
+    });
+
+    socket.on("disconnect", (reason) => {
+      if (reason === "io server disconnect") {
+        socket.connect();
+      }
+    });
+
+    socket.on("reconnect", () => {
+      const storedName = localStorage.getItem("deviceName");
+      if (storedName) {
+        const sanitized = sanitizeDeviceName(storedName);
+        if (sanitized && sanitized !== storedName) {
+          localStorage.setItem("deviceName", sanitized);
+        }
+        if (sanitized) {
+          socket.emit("register-device", { displayName: sanitized });
+        }
+      }
     });
 
     socket.on(
@@ -383,6 +439,16 @@ export default function IntercomPage() {
         if (!pc) {
           pc = createPeerConnection(fromDeviceId);
           activeConnectionsRef.current.set(fromDeviceId, pc);
+        } else {
+          const connectionState = pc.connectionState;
+          if (
+            connectionState === "failed" ||
+            connectionState === "disconnected"
+          ) {
+            cleanupPeerConnection(fromDeviceId);
+            pc = createPeerConnection(fromDeviceId);
+            activeConnectionsRef.current.set(fromDeviceId, pc);
+          }
         }
 
         const state = connectionStateRef.current.get(fromDeviceId) || {
@@ -394,22 +460,23 @@ export default function IntercomPage() {
         try {
           if ("type" in data) {
             const description = data as RTCSessionDescriptionInit;
-            const readyForOffer =
-              !state.makingOffer &&
-              (pc.signalingState === "stable" ||
-                state.settingRemoteAnswerPending);
-            const offerCollision =
-              description.type === "offer" && !readyForOffer;
-
-            if (offerCollision) {
-              await pc.setLocalDescription({ type: "rollback" });
-            }
-
-            state.settingRemoteAnswerPending = description.type === "answer";
-            await pc.setRemoteDescription(description);
-            state.settingRemoteAnswerPending = false;
 
             if (description.type === "offer") {
+              const readyForOffer =
+                !state.makingOffer &&
+                (pc.signalingState === "stable" ||
+                  state.settingRemoteAnswerPending);
+
+              if (!readyForOffer) {
+                if (state.makingOffer) {
+                  await pc.setLocalDescription({ type: "rollback" });
+                }
+                state.makingOffer = false;
+              }
+
+              state.settingRemoteAnswerPending = false;
+              await pc.setRemoteDescription(description);
+
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
               if (
@@ -425,16 +492,24 @@ export default function IntercomPage() {
                   data: pc.localDescription,
                 });
               }
+            } else if (description.type === "answer") {
+              state.settingRemoteAnswerPending = true;
+              await pc.setRemoteDescription(description);
+              state.settingRemoteAnswerPending = false;
             }
           } else if ("candidate" in data) {
-            await pc.addIceCandidate(data as RTCIceCandidate);
+            try {
+              await pc.addIceCandidate(data as RTCIceCandidate);
+            } catch (err) {
+              if (err instanceof Error && err.name !== "OperationError") {
+                console.error("ICE candidate error:", err);
+              }
+            }
           }
         } catch (err) {
-          const message =
-            err instanceof Error ? err.message : "Signaling handling failed";
           console.error("Signal handling error:", err);
-          setStatus("error");
-          setDetail(`Signaling failed: ${message}`);
+          state.makingOffer = false;
+          state.settingRemoteAnswerPending = false;
         }
       }
     );
@@ -576,11 +651,13 @@ export default function IntercomPage() {
         onToggleLock={togglePttLock}
         onToggleRemoteMute={toggleRemoteMute}
         onDeviceNameChange={(name) => {
-          setDeviceName(name);
-          localStorage.setItem("deviceName", name);
+          const sanitized = sanitizeDeviceName(name);
+          if (!sanitized) return;
+          setDeviceName(sanitized);
+          localStorage.setItem("deviceName", sanitized);
           if (socketRef.current?.connected) {
             socketRef.current.emit("update-device-name", {
-              displayName: name,
+              displayName: sanitized,
             });
           }
         }}

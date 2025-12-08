@@ -17,10 +17,12 @@ export function DeviceNameModal({
   }, []);
 
   const handleSave = () => {
-    const trimmed = name.trim();
+    const trimmed = name.trim().slice(0, 50).replace(/[<>\"'&]/g, "");
     if (trimmed) {
       localStorage.setItem("deviceName", trimmed);
       onSave(trimmed);
+    } else {
+      localStorage.removeItem("deviceName");
     }
   };
 

@@ -44,34 +44,57 @@ const broadcastDeviceList = () => {
   io.emit("device-list", deviceList);
 };
 
+const sanitizeDeviceName = (name) => {
+  if (typeof name !== "string") return null;
+  return (
+    name
+      .trim()
+      .slice(0, 50)
+      .replace(/[<>\"'&]/g, "") || null
+  );
+};
+
 io.on("connection", (socket) => {
   socket.on("register-device", (payload) => {
-    const { displayName } = payload || {};
-    if (typeof displayName !== "string" || !displayName.trim()) return;
+    if (!payload || typeof payload !== "object") return;
+    const { displayName } = payload;
+    const sanitized = sanitizeDeviceName(displayName);
+    if (!sanitized) return;
 
     devices.set(socket.id, {
       deviceId: socket.id,
-      displayName: displayName.trim(),
+      displayName: sanitized,
     });
 
     broadcastDeviceList();
   });
 
   socket.on("update-device-name", (payload) => {
-    const { displayName } = payload || {};
-    if (typeof displayName !== "string" || !displayName.trim()) return;
+    if (!payload || typeof payload !== "object") return;
+    const { displayName } = payload;
+    const sanitized = sanitizeDeviceName(displayName);
+    if (!sanitized) return;
 
     const device = devices.get(socket.id);
     if (device) {
-      device.displayName = displayName.trim();
+      device.displayName = sanitized;
       broadcastDeviceList();
     }
   });
 
   socket.on("signal", (payload) => {
-    const { callId, fromDeviceId, targetDeviceId, data } = payload || {};
+    if (!payload || typeof payload !== "object") return;
+    const { callId, fromDeviceId, targetDeviceId, data } = payload;
 
-    if (targetDeviceId && typeof targetDeviceId === "string") {
+    if (
+      targetDeviceId &&
+      typeof targetDeviceId === "string" &&
+      targetDeviceId.length <= 100 &&
+      fromDeviceId &&
+      typeof fromDeviceId === "string" &&
+      fromDeviceId.length <= 100 &&
+      data
+    ) {
       const targetSocket = Array.from(io.sockets.sockets.values()).find(
         (s) => s.id === targetDeviceId
       );

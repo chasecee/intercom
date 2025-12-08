@@ -42,16 +42,28 @@ export function Waveform({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const audioContext = new AudioContext();
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.95;
-    const source = audioContext.createMediaStreamSource(stream);
-    source.connect(analyser);
+    let audioContext: AudioContext | null = null;
+    let analyser: AnalyserNode | null = null;
+    let source: MediaStreamAudioSourceNode | null = null;
 
-    audioContextRef.current = audioContext;
-    analyserRef.current = analyser;
-    sourceRef.current = source;
+    try {
+      audioContext = new AudioContext();
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.95;
+      source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      audioContextRef.current = audioContext;
+      analyserRef.current = analyser;
+      sourceRef.current = source;
+    } catch (err) {
+      console.error("Failed to create audio context:", err);
+      if (audioContext) {
+        audioContext.close().catch(() => {});
+      }
+      return;
+    }
 
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
@@ -104,10 +116,20 @@ export function Waveform({
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
-      sourceRef.current?.disconnect();
-      analyserRef.current?.disconnect();
-      audioContextRef.current?.close();
+      if (sourceRef.current) {
+        sourceRef.current.disconnect();
+        sourceRef.current = null;
+      }
+      if (analyserRef.current) {
+        analyserRef.current.disconnect();
+        analyserRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
     };
   }, [stream, width, height]);
 
