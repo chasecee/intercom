@@ -38,8 +38,10 @@ export function useDeviceName() {
       });
     } catch (err) {
       console.error("Failed to read device name from localStorage:", err);
-      setShowDeviceNameModal(true);
-      setIsHydrated(true);
+      startTransition(() => {
+        setShowDeviceNameModal(true);
+        setIsHydrated(true);
+      });
     }
   }, []);
 
