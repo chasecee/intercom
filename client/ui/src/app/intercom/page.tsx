@@ -10,6 +10,7 @@ import {
 import { io, type Socket } from "socket.io-client";
 import { DeviceNameModal } from "./components/DeviceNameModal";
 import { DeviceToolbar } from "./components/DeviceToolbar";
+import { IncomingAudioHandler } from "./components/IncomingAudioHandler";
 
 type PeerStatus = "idle" | "connecting" | "live" | "error";
 
@@ -554,6 +555,10 @@ export default function IntercomPage() {
   return (
     <div className="h-screen overflow-hidden bg-black text-white">
       {showDeviceNameModal && <DeviceNameModal onSave={handleDeviceNameSave} />}
+      <IncomingAudioHandler
+        incomingStreams={incomingStreams}
+        isRemoteMuted={isRemoteMuted}
+      />
       <DeviceToolbar
         devices={devices}
         currentDeviceId={currentDeviceId}

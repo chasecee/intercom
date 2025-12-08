@@ -1,7 +1,6 @@
 "use client";
 
 import { Waveform } from "./Waveform";
-import { useRef, useEffect } from "react";
 
 type Device = {
   deviceId: string;
@@ -19,40 +18,6 @@ export function DeviceWaveformList({
   isRemoteMuted: boolean;
   onToggleRemoteMute: () => void;
 }) {
-  const audioRefsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
-
-  useEffect(() => {
-    const currentDeviceIds = new Set(incomingStreams.keys());
-    
-    incomingStreams.forEach((stream, deviceId) => {
-      let audioElement = audioRefsRef.current.get(deviceId);
-      if (!audioElement) {
-        audioElement = document.createElement("audio");
-        audioElement.autoplay = true;
-        audioElement.preload = "none";
-        audioRefsRef.current.set(deviceId, audioElement);
-      }
-      audioElement.srcObject = stream;
-      audioElement.muted = isRemoteMuted;
-      audioElement.play().catch(() => {});
-    });
-
-    audioRefsRef.current.forEach((audio, deviceId) => {
-      if (!currentDeviceIds.has(deviceId)) {
-        audio.pause();
-        audio.srcObject = null;
-        audioRefsRef.current.delete(deviceId);
-      }
-    });
-
-    return () => {
-      audioRefsRef.current.forEach((audio) => {
-        audio.pause();
-        audio.srcObject = null;
-      });
-      audioRefsRef.current.clear();
-    };
-  }, [incomingStreams, isRemoteMuted]);
 
   const entries = Array.from(incomingStreams.entries());
   if (entries.length === 0) {
