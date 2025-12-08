@@ -44,6 +44,7 @@ export default function IntercomPage() {
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const [selectedTargets, setSelectedTargets] = useState<string[]>(["ALL"]);
   const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
+  const [iframeError, setIframeError] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const activeConnectionsRef = useRef<Map<string, RTCPeerConnection>>(
     new Map()
@@ -581,14 +582,38 @@ export default function IntercomPage() {
         onExpandedChange={setIsToolbarExpanded}
       />
       <div
-        className="fixed left-0 right-0 bottom-0 overflow-hidden"
-        style={{ top: isToolbarExpanded ? "420px" : "80px" }}
+        className="fixed left-0 right-0 bottom-0 overflow-hidden bg-black"
+        style={{ top: isToolbarExpanded ? "420px" : "80px", zIndex: 10 }}
       >
-        <iframe
-          src="http://192.168.4.251:8123/lovelace-tablet/"
-          className="w-full h-full border-0"
-          title="Home Assistant Tablet Dashboard"
-        />
+        {iframeError ? (
+          <div className="flex h-full items-center justify-center text-zinc-400">
+            <div className="text-center">
+              <p className="mb-2">Unable to load Home Assistant dashboard</p>
+              <p className="text-sm">
+                Ensure Home Assistant has{" "}
+                <code className="bg-zinc-800 px-1 rounded">
+                  use_x_frame_options: false
+                </code>{" "}
+                in configuration.yaml
+              </p>
+            </div>
+          </div>
+        ) : (
+          <iframe
+            src="http://192.168.4.251:8123/lovelace-tablet/"
+            className="w-full h-full border-0"
+            title="Home Assistant Tablet Dashboard"
+            onLoad={() => {
+              console.log("Home Assistant iframe loaded successfully");
+              setIframeError(false);
+            }}
+            onError={() => {
+              console.error("Home Assistant iframe error");
+              setIframeError(true);
+            }}
+            style={{ display: "block", minHeight: "100%" }}
+          />
+        )}
       </div>
     </div>
   );
