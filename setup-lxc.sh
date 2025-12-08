@@ -45,6 +45,7 @@ cd /opt/intercom/client/ui && npm ci
 echo "Creating .env.local..."
 cat >/opt/intercom/client/ui/.env.local <<EOF
 NEXT_PUBLIC_SIGNALING_URL=http://${LXC_IP}:3001
+NEXT_PUBLIC_HOME_ASSISTANT_URL=
 EOF
 
 echo "Building Next.js app..."

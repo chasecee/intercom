@@ -60,7 +60,7 @@ export function useWakeLock(
     const acquireSystemWakeLock = async () => {
       if (!isMounted) return;
       try {
-        const wakeLock = navigator.wakeLock as {
+        const wakeLock = navigator.wakeLock as unknown as {
           request?: (type: "system") => Promise<WakeLockSentinel>;
         };
         if ("system" in navigator.wakeLock && wakeLock.request) {
