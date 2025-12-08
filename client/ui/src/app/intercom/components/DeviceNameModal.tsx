@@ -10,19 +10,32 @@ export function DeviceNameModal({
   const [name, setName] = useState("");
 
   useEffect(() => {
-    const stored = localStorage.getItem("deviceName");
-    if (stored) {
-      setName(stored);
+    try {
+      const stored = localStorage.getItem("deviceName");
+      if (stored) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setName(stored);
+      }
+    } catch (err) {
+      console.error("Failed to read device name from localStorage:", err);
     }
   }, []);
 
   const handleSave = () => {
     const trimmed = name.trim().slice(0, 50).replace(/[<>\"'&]/g, "");
     if (trimmed) {
-      localStorage.setItem("deviceName", trimmed);
-      onSave(trimmed);
+      try {
+        localStorage.setItem("deviceName", trimmed);
+        onSave(trimmed);
+      } catch (err) {
+        console.error("Failed to save device name to localStorage:", err);
+      }
     } else {
-      localStorage.removeItem("deviceName");
+      try {
+        localStorage.removeItem("deviceName");
+      } catch (err) {
+        console.error("Failed to remove device name from localStorage:", err);
+      }
     }
   };
 

@@ -4,11 +4,7 @@ import { useState, useEffect } from "react";
 import { DeviceTile } from "./DeviceTile";
 import { DeviceWaveformList } from "./DeviceWaveformList";
 import { Waveform } from "./Waveform";
-
-type Device = {
-  deviceId: string;
-  displayName: string;
-};
+import type { Device } from "../utils";
 
 export function DeviceToolbar({
   devices,
@@ -59,6 +55,7 @@ export function DeviceToolbar({
   const isAllSelected = selectedTargets.length === 1 && selectedTargets[0] === "ALL";
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setEditedDeviceName(currentDeviceName || "");
   }, [currentDeviceName]);
 

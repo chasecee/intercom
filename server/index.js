@@ -46,12 +46,11 @@ const broadcastDeviceList = () => {
 
 const sanitizeDeviceName = (name) => {
   if (typeof name !== "string") return null;
-  return (
-    name
-      .trim()
-      .slice(0, 50)
-      .replace(/[<>\"'&]/g, "") || null
-  );
+  const sanitized = name
+    .trim()
+    .slice(0, 50)
+    .replace(/[<>\"'&]/g, "");
+  return sanitized || null;
 };
 
 io.on("connection", (socket) => {
@@ -87,6 +86,9 @@ io.on("connection", (socket) => {
     const { callId, fromDeviceId, targetDeviceId, data } = payload;
 
     if (
+      callId &&
+      typeof callId === "string" &&
+      callId.length <= 200 &&
       targetDeviceId &&
       typeof targetDeviceId === "string" &&
       targetDeviceId.length <= 100 &&
@@ -107,6 +109,10 @@ io.on("connection", (socket) => {
         });
       }
     }
+  });
+
+  socket.on("ping", () => {
+    socket.emit("pong");
   });
 
   socket.on("disconnect", () => {

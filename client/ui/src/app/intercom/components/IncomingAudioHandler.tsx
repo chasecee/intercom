@@ -2,11 +2,6 @@
 
 import { useRef, useEffect } from "react";
 
-type Device = {
-  deviceId: string;
-  displayName: string;
-};
-
 export function IncomingAudioHandler({
   incomingStreams,
   isRemoteMuted,
@@ -17,39 +12,43 @@ export function IncomingAudioHandler({
   const audioRefsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
 
   useEffect(() => {
+    const audioRefs = audioRefsRef.current;
     const currentDeviceIds = new Set(incomingStreams.keys());
 
     incomingStreams.forEach((stream, deviceId) => {
-      let audioElement = audioRefsRef.current.get(deviceId);
+      let audioElement = audioRefs.get(deviceId);
       if (!audioElement) {
         audioElement = document.createElement("audio");
         audioElement.autoplay = true;
         audioElement.preload = "none";
-        audioRefsRef.current.set(deviceId, audioElement);
+        audioElement.setAttribute("playsinline", "true");
+        audioElement.setAttribute("webkit-playsinline", "true");
+        audioRefs.set(deviceId, audioElement);
       }
       audioElement.srcObject = stream;
       audioElement.muted = isRemoteMuted;
-      audioElement.play().catch(() => {});
+      audioElement.play().catch((err) => {
+        console.error(`Failed to play audio for device ${deviceId}:`, err);
+      });
     });
 
-    audioRefsRef.current.forEach((audio, deviceId) => {
+    audioRefs.forEach((audio, deviceId) => {
       if (!currentDeviceIds.has(deviceId)) {
         audio.pause();
         audio.srcObject = null;
-        audioRefsRef.current.delete(deviceId);
+        audioRefs.delete(deviceId);
       }
     });
 
     return () => {
-      audioRefsRef.current.forEach((audio) => {
+      audioRefs.forEach((audio) => {
         audio.pause();
         audio.srcObject = null;
       });
-      audioRefsRef.current.clear();
+      audioRefs.clear();
     };
   }, [incomingStreams, isRemoteMuted]);
 
   // This component doesn't render anything, it just manages audio elements
   return null;
 }
-
