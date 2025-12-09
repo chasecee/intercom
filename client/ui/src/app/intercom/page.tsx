@@ -82,23 +82,6 @@ export default function IntercomPage() {
 
   return (
     <ErrorBoundary>
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          zIndex: 9999,
-          background: "red",
-          color: "white",
-          padding: "10px",
-          fontSize: "12px",
-        }}
-      >
-        DEBUG: Hydrated={isHydrated ? "YES" : "NO"}, Devices={devices.length},
-        DeviceName={deviceName || "null"}, Socket=
-        {socket?.connected ? "CONNECTED" : "DISCONNECTED"}, CurrentDeviceId=
-        {currentDeviceId || "null"}
-      </div>
       <div className="h-screen overflow-hidden bg-black text-white">
         {showDeviceNameModal && (
           <DeviceNameModal onSave={handleDeviceNameSaveWithRegistration} />
