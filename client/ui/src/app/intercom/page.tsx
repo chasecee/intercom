@@ -95,7 +95,9 @@ export default function IntercomPage() {
         }}
       >
         DEBUG: Hydrated={isHydrated ? "YES" : "NO"}, Devices={devices.length},
-        DeviceName={deviceName || "null"}
+        DeviceName={deviceName || "null"}, Socket=
+        {socket?.connected ? "CONNECTED" : "DISCONNECTED"}, CurrentDeviceId=
+        {currentDeviceId || "null"}
       </div>
       <div className="h-screen overflow-hidden bg-black text-white">
         {showDeviceNameModal && (
